@@ -1,0 +1,185 @@
+<?php
+include './config.php';
+ini_set("log_errors", 1);
+ini_set("error_log", LOG."/php-error.log");
+parse_str(file_get_contents('php://input'), $_POST);
+function doLog($log){
+	if (!file_exists(LOG) and !is_dir(LOG)) {
+		mkdir(LOG);
+	}	
+	$file = LOG.'/grid_load.log';
+	// Write the contents back to the file
+	//echo "do loging to $file";
+	file_put_contents($file, "$log\n", FILE_APPEND | LOCK_EX);
+}
+doLog("Start process");
+$page = $_POST['page']; // get the requested page
+$limit = $_POST['rows']; // get how many rows we want to have into the grid
+$oper = $_POST['oper']; // get the operation
+$sidx = $_POST['sidx']; // get index row - i.e. user click to sort
+$sord = $_POST['sord']; // get the direction
+$id = $_POST['id']; // get the id
+$id2 = $_POST['id2']; // get the id2
+$layoutid = $_POST['layoutid']; // get the id
+$name = $_POST['name']; // get the name
+doLog("Parameters received : \n".
+	"\tPage = ".$page."\n".
+	"\tLimit = ".$limit."\n".
+	"\tope = ".$oper."\n".
+	"\tSort idx = ".$sidx."\n".
+	"\tSortDirection = ".$sord."\n".
+	"\tId = ".$id."\n".
+	"\tId2 = ".$id2."\n".
+	"\tName = ".$name."\n".
+	"\tHost = ".DB_HOST."\n".
+	"\tPort = ".DB_PORT."\n".
+	"\tDBName = ".DB_NAME."\n".
+	"\tUser = ".DB_USER."\n".
+	"\tPwd = ".DB_PASSWORD);
+if (!$sidx) $sidx =1;
+// connect to pgsql
+
+doLog("Connecting...");
+
+$connection = pg_connect(DSN) or die ("Could not connect to server\n");
+pg_query($connection,"set names 'utf8'");	
+
+doLog("Operation is :".$oper);
+
+switch ($oper) {
+	case "del":
+		$response->status = 0;
+		$response->responseText = "Delete Successful.";
+		//select db base on id and return svg data
+		$query = "delete from ".DB_SCHEMA.".seatings where layout_id = $layoutid";
+		doLog("Executing :".$query);
+		$result = pg_query($connection,$query);
+		if ($result) {
+			$query = "delete from ".DB_SCHEMA.".layouts where layout_id = $layoutid";
+			doLog("Executing :".$query);
+			$result = pg_query($connection,$query);
+			if ($result) {
+				doLog("Delete is successful.");
+				$response->status = 0;
+				$response->responseText = "Delete Successful.";
+			} else {
+				doLog("Delete is a failure.");
+				$response->status = 1;
+				$response->responseText = "Cannot execute query: $query, Error".pg_last_error($connection);
+			}
+		} else {
+			doLog("Delete is a failure.");
+			$response->status = 1;
+			$response->responseText = "Cannot execute query: $query, Error".pg_last_error($connection);				
+		}
+	break;
+	case "get":
+		$response->status = 0;
+		$response->responseText = "Load Successful.";
+		//select db base on id and return svg data
+		$query = "	select
+						l.layout_svg as svg
+					from
+						".DB_SCHEMA.".layouts l
+					where 
+						l.venue_id = ".$id2." 
+						and l.layout_id = ".$id
+				;
+		doLog("Executing :".$query);
+		$result = pg_query($connection,$query);
+		if ($result) {
+			doLog("Fetch the result.");
+			$row = pg_fetch_array($result);
+			doLog("Testing the svg.");
+			/*
+			$pattern = '#^(?:[A-Za-z/0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$#';
+			if (preg_match($pattern,$row['svg']) > 0) {
+				doLog("This is a base64 SVG.");				
+				$svg = $row['svg'];
+			} else {
+				doLog("This is not a base64 SVG, need encoding.");				
+				$svg = base64_encode($row['svg']);				
+			}*/
+			$svg = $row['svg'];				
+			doLog("The load is successful.");				
+			$response->status = 0;
+			$response->responseText = "Load Successful.";
+			$response->d = $svg;
+		} else {
+			doLog("The load is a failure.");				
+			$response->status = 1;
+			$response->responseText = "Cannot execute query: $query, Error".pg_last_error($connection);				
+		}
+		break;
+	default:
+		$query = "SELECT COUNT(*) AS count FROM (
+					select
+						distinct cast(l.layout_id as text) || cast(v.venue_id as text) || cast(e.event_id as text)  as id, l.layout_id, v.venue_id, e.event_id, l.layout_name, v.venue_name, e.event_name
+					from
+						".DB_SCHEMA.".layouts l
+						left join ".DB_SCHEMA.".seatings s on s.layout_id = l.layout_id
+						left join ".DB_SCHEMA.".events e on  e.event_id = s.event_id
+						join ".DB_SCHEMA.".venues v on l.venue_id = v.venue_id
+				) AS layouts";
+		doLog("Executing :".$query);
+		$result = pg_query($connection,$query) or doLog("Cannot execute query: $query, Error".pg_last_error($connection)."\n");
+		doLog("Query ".$query." successful.");
+		$row = pg_fetch_array($result);
+		$count = $row['count'];
+		if( $count > 0 && $limit > 0) {
+			$total_pages = ceil($count/$limit);
+		}
+		else {
+			$total_pages = 0;
+		}
+		if ($page > $total_pages) $page=$total_pages;
+		$start = $limit*$page - $limit; // do not put $limit*($page - 1)
+		if ($start<0) $start = 0;
+		$query = 	"select
+		distinct
+			case when e.event_id > 0 
+						then
+							cast(l.layout_id as text) || 
+							cast(v.venue_id as text) || 
+					 		cast(e.event_id as text) || 
+							cast(l.layout_name as text) 
+						else 
+							cast(l.layout_id as text) || 
+							cast(v.venue_id as text) || 
+					 		'NA' || 
+							cast(l.layout_name as text) 
+						end 
+						as id, 
+						l.layout_id, v.venue_id, e.event_id, l.layout_name, v.venue_name, e.event_name, l.layout_width, l.layout_height
+		from
+		".DB_SCHEMA.".layouts l
+		left join ".DB_SCHEMA.".seatings s on s.layout_id = l.layout_id
+		left join ".DB_SCHEMA.".events e on  e.event_id = s.event_id
+		join ".DB_SCHEMA.".venues v on l.venue_id = v.venue_id
+		order by $sidx $sord  LIMIT $limit OFFSET $start";
+		doLog("Executing :".$query);
+		$result = pg_query($connection,$query) or doLog("Cannot execute query: $query\n");
+		$response->page = $page;
+		$response->total = $total_pages;
+		$response->records = $count;
+		$i=0;
+		while($row = pg_fetch_array($result)) {
+			$response->d[$i]=array(	'id'=>$row[0],
+					'layout_id'=>$row[1],
+					'venue_id'=>$row[2],
+					'event_id'=>$row[3],
+					'layout'=>$row[4],
+					'venue'=> $row[5],
+					'event'=> ($row[6] === null ? "NA" : $row[6]),
+					'width'=> $row[7],
+					'height'=> $row[8]
+			);
+			$i++;
+		}
+		doLog("Preparing the reponse");
+		break;
+}
+header("Content-type: application/json;charset=utf-8");
+doLog(json_encode($response));
+echo json_encode($response);
+?>

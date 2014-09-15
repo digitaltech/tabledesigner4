@@ -1,0 +1,31 @@
+.boxfields {
+	margin-top: 5px;	
+}
+.boxfields label, .boxfields input {
+  display:inline-block;
+}
+
+.boxfields #note_text {
+	margin-top: 5px;
+}
+
+.div_separator {
+	margin-top: 5px;
+	margin-bottom: 5px;	
+}
+
+.error {
+	color: red;
+	font-weight: bold;
+	margin-left: 5px;
+}
+
+#table_seats, #table_size {
+	background-color: gray;
+	margin-top: 5px;
+	margin-bottom: 5px;
+}
+
+#seats_total_name {
+	float:left;
+}

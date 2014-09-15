@@ -1,0 +1,46 @@
+<?php
+include './config.php';
+function doLog($log){
+	if (!file_exists(LOG) and !is_dir(LOG)) {
+		mkdir(LOG);
+	}	
+	$file = LOG.'/get_select.log';
+	// Write the contents back to the file
+	//echo "do logging to $file";
+	file_put_contents($file, "$log\n", FILE_APPEND | LOCK_EX);
+}
+if(	isset($_GET['t'])){
+	$table = $_GET['t']; // get fields to select
+} else {
+	die("Error");
+}
+doLog("Parameters received : \n".
+	"\ttable = ".$table."\n".
+	"\tHost = ".DB_HOST."\n".
+	"\tPort = ".DB_PORT."\n".
+	"\tDBName = ".DB_NAME."\n".
+	"\tUser = ".DB_USER."\n".
+	"\tPwd = ".DB_PASSWORD
+);
+$hfield = substr(strtolower($table),0,-1);
+$fields['id'] = $hfield."_id";
+$fields['name'] = $hfield."_name";
+// connect to pgsql
+$connection = pg_Connect(DSN) or die ("Could not connect to server\n");
+pg_query($connection,"set names 'utf8'");	
+//$query = "select ".join($fields,",")." from ".DB_SCHEMA.".$table";
+$query = "select ".join($fields,",")." from ".DB_SCHEMA.".$table where deleted = 0";
+doLog("Executing :".$query);
+$result = pg_query($connection,$query) or die("Cannot execute query: $query\n");
+while($row = pg_fetch_assoc($result)) {
+	$a = array();
+	foreach ($fields as $key => $val) {
+		$a[] = $row[$val];
+	}
+	$response[] = $a;
+}
+doLog("Preparing the response");
+header("Content-type: application/json;charset=utf-8");
+doLog(json_encode($response));
+echo json_encode($response);
+?>
